@@ -1,5 +1,7 @@
 from dataclasses import dataclass
+
 import numpy as np
+
 
 @dataclass
 class Config:
@@ -31,6 +33,8 @@ class Config:
 
 
 class Simulation:
+    """2D social-force-style evacuation simulation."""
+
     def __init__(self, cfg: Config):
         self.cfg = cfg
 
@@ -49,6 +53,9 @@ class Simulation:
         self.remaining = [cfg.n_agents]
         self.snapshots = [self.pos[self.active].copy()]
 
+    def _active_indices(self) -> np.ndarray:
+        return np.where(self.active)[0]
+
     def _initialize_agents(self) -> np.ndarray:
         """Randomly place agents inside the lecture theatre, avoiding large overlaps."""
         rng = np.random.default_rng(self.cfg.seed)
@@ -59,11 +66,15 @@ class Simulation:
         max_attempts = 200000
 
         while count < self.cfg.n_agents and attempts < max_attempts:
-            candidate = np.array([
-                rng.uniform(self.cfg.radius, self.cfg.room_w - self.cfg.radius),
-                rng.uniform(self.cfg.corridor_len + self.cfg.radius,
-                            self.room_top - self.cfg.radius),
-            ])
+            candidate = np.array(
+                [
+                    rng.uniform(self.cfg.radius, self.cfg.room_w - self.cfg.radius),
+                    rng.uniform(
+                        self.cfg.corridor_len + self.cfg.radius,
+                        self.room_top - self.cfg.radius,
+                    ),
+                ]
+            )
 
             if count == 0:
                 pos[count] = candidate
@@ -97,7 +108,7 @@ class Simulation:
     def _goal_force(self) -> np.ndarray:
         forces = np.zeros_like(self.pos)
 
-        idx = np.where(self.active)[0]
+        idx = self._active_indices()
         if len(idx) == 0:
             return forces
 
@@ -124,7 +135,7 @@ class Simulation:
         This is intentionally minimal for the first commit.
         """
         forces = np.zeros_like(self.pos)
-        idx = np.where(self.active)[0]
+        idx = self._active_indices()
         if len(idx) < 2:
             return forces
 
@@ -154,7 +165,7 @@ class Simulation:
         - corridor side walls
         """
         forces = np.zeros_like(self.pos)
-        idx = np.where(self.active)[0]
+        idx = self._active_indices()
         if len(idx) == 0:
             return forces
 
@@ -171,21 +182,37 @@ class Simulation:
         fy -= self.cfg.k_wall * np.clip(y - (self.room_top - self.cfg.radius), 0.0, None)
 
         # Bottom wall of the lecture theatre, except where the door is
-        near_room_bottom = (y >= self.cfg.corridor_len - self.cfg.radius) & (y <= self.cfg.corridor_len + self.cfg.radius)
+        near_room_bottom = (
+            (y >= self.cfg.corridor_len - self.cfg.radius)
+            & (y <= self.cfg.corridor_len + self.cfg.radius)
+        )
         outside_door = (x < self.door_xmin) | (x > self.door_xmax)
-        fy += self.cfg.k_wall * np.clip((self.cfg.corridor_len + self.cfg.radius) - y, 0.0, None) * near_room_bottom * outside_door
+        fy += (
+            self.cfg.k_wall
+            * np.clip((self.cfg.corridor_len + self.cfg.radius) - y, 0.0, None)
+            * near_room_bottom
+            * outside_door
+        )
 
         # Corridor side walls
         in_corridor = y < self.cfg.corridor_len + self.cfg.radius
-        fx += self.cfg.k_wall * np.clip((self.door_xmin + self.cfg.radius) - x, 0.0, None) * in_corridor
-        fx -= self.cfg.k_wall * np.clip(x - (self.door_xmax - self.cfg.radius), 0.0, None) * in_corridor
+        fx += (
+            self.cfg.k_wall
+            * np.clip((self.door_xmin + self.cfg.radius) - x, 0.0, None)
+            * in_corridor
+        )
+        fx -= (
+            self.cfg.k_wall
+            * np.clip(x - (self.door_xmax - self.cfg.radius), 0.0, None)
+            * in_corridor
+        )
 
         forces[idx, 0] = fx
         forces[idx, 1] = fy
         return forces
 
-    def _limit_speed(self):
-        idx = np.where(self.active)[0]
+    def _limit_speed(self) -> None:
+        idx = self._active_indices()
         if len(idx) == 0:
             return
 
@@ -194,19 +221,19 @@ class Simulation:
         factors = np.minimum(1.0, self.cfg.speed_cap / speeds)
         self.vel[idx] *= factors
 
-    def _remove_exited_agents(self):
+    def _remove_exited_agents(self) -> None:
         exited = self.active & (self.pos[:, 1] < -self.cfg.radius)
         self.active[exited] = False
         self.vel[~self.active] = 0.0
 
-    def step(self):
+    def step(self) -> None:
         total_force = (
             self._goal_force()
             + self._agent_repulsion()
             + self._wall_force()
         )
 
-        idx = np.where(self.active)[0]
+        idx = self._active_indices()
         if len(idx) == 0:
             return
 
@@ -215,7 +242,7 @@ class Simulation:
         self.pos[idx] += self.vel[idx] * self.cfg.dt
         self._remove_exited_agents()
 
-    def run(self):
+    def run(self) -> tuple[np.ndarray, np.ndarray]:
         n_steps = int(self.cfg.t_max / self.cfg.dt)
 
         for step in range(1, n_steps + 1):
