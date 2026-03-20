@@ -1,5 +1,5 @@
 from simulation import Config, Simulation
-from visualization import plot_simulation_results
+from visualization import plot_simulation_results, animate_simulation
 
 
 def main():
@@ -9,6 +9,8 @@ def main():
     initial_positions = sim.pos.copy()
     times, remaining = sim.run()
 
+    animate_simulation(cfg, sim.snapshots, times)
+    
     plot_simulation_results(
         cfg=cfg,
         initial_positions=initial_positions,

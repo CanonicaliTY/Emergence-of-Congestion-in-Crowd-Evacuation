@@ -1,33 +1,48 @@
 from typing import Sequence
 
 import matplotlib.pyplot as plt
+import matplotlib.animation as animation
 import numpy as np
 
 from simulation import Config
 
 
 def draw_geometry(ax: plt.Axes, cfg: Config) -> None:
-    """Draw room, door, corridor walls, and exit line."""
+    """Draw room walls with gaps for all defined exits."""
     room_bottom = cfg.corridor_len
     room_top = cfg.corridor_len + cfg.room_h
-    door_xmin = 0.5 * (cfg.room_w - cfg.door_w)
-    door_xmax = 0.5 * (cfg.room_w + cfg.door_w)
 
-    # Room walls
-    ax.plot([0, 0], [room_bottom, room_top], linewidth=2)
-    ax.plot([cfg.room_w, cfg.room_w], [room_bottom, room_top], linewidth=2)
-    ax.plot([0, cfg.room_w], [room_top, room_top], linewidth=2)
+    # 1. Left Wall (x=0)
+    left_exits = sorted([e for e in cfg.exits if e["side"] == "left"], key=lambda e: e["y"])
+    curr_y = room_bottom
+    for ex in left_exits:
+        ax.plot([0, 0], [curr_y, ex["y"] - ex["w"]/2], color="black", linewidth=2)
+        curr_y = ex["y"] + ex["w"]/2
+    ax.plot([0, 0], [curr_y, room_top], color="black", linewidth=2)
 
-    # Bottom room wall with a gap for the door
-    ax.plot([0, door_xmin], [room_bottom, room_bottom], linewidth=2)
-    ax.plot([door_xmax, cfg.room_w], [room_bottom, room_bottom], linewidth=2)
+    # 2. Right Wall (x=room_w)
+    right_exits = sorted([e for e in cfg.exits if e["side"] == "right"], key=lambda e: e["y"])
+    curr_y = room_bottom
+    for ex in right_exits:
+        ax.plot([cfg.room_w, cfg.room_w], [curr_y, ex["y"] - ex["w"]/2], color="black", linewidth=2)
+        curr_y = ex["y"] + ex["w"]/2
+    ax.plot([cfg.room_w, cfg.room_w], [curr_y, room_top], color="black", linewidth=2)
 
-    # Corridor walls
-    ax.plot([door_xmin, door_xmin], [0, room_bottom], linewidth=2)
-    ax.plot([door_xmax, door_xmax], [0, room_bottom], linewidth=2)
+    # 3. Top Wall (y=room_top)
+    top_exits = sorted([e for e in cfg.exits if e["side"] == "top"], key=lambda e: e["x"])
+    curr_x = 0
+    for ex in top_exits:
+        ax.plot([curr_x, ex["x"] - ex["w"]/2], [room_top, room_top], color="black", linewidth=2)
+        curr_x = ex["x"] + ex["w"]/2
+    ax.plot([curr_x, cfg.room_w], [room_top, room_top], color="black", linewidth=2)
 
-    # Exit line
-    ax.plot([door_xmin, door_xmax], [0, 0], linestyle="--", linewidth=2)
+    # 4. Bottom Wall (y=room_bottom)
+    bottom_exits = sorted([e for e in cfg.exits if e["side"] == "bottom"], key=lambda e: e["x"])
+    curr_x = 0
+    for ex in bottom_exits:
+        ax.plot([curr_x, ex["x"] - ex["w"]/2], [room_bottom, room_bottom], color="black", linewidth=2)
+        curr_x = ex["x"] + ex["w"]/2
+    ax.plot([curr_x, cfg.room_w], [room_bottom, room_bottom], color="black", linewidth=2)
 
     ax.set_aspect("equal")
     ax.set_xlim(-1, cfg.room_w + 1)
@@ -44,6 +59,24 @@ def _last_nonempty_snapshot(
             return snap
     return initial_positions
 
+def animate_simulation(cfg: Config, snapshots: Sequence[np.ndarray], times: np.ndarray) -> None:
+    """Create an animation of the evacuation process."""
+    fig, ax = plt.subplots(figsize=(8, 6))
+    draw_geometry(ax, cfg)
+    
+    scatter = ax.scatter([], [], s=10, alpha=0.9)
+    time_text = ax.text(0.02, 0.95, '', transform=ax.transAxes)
+    
+    def update(frame):
+        if frame < len(snapshots):
+            scatter.set_offsets(snapshots[frame])
+            time_text.set_text(f'Time: {times[frame]:.2f} s')
+        return scatter, time_text
+    
+    ani = animation.FuncAnimation(
+        fig, update, frames=len(snapshots), interval=150, blit=True
+    )
+    plt.show()
 
 def plot_simulation_results(
     cfg: Config,

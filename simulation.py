@@ -1,4 +1,4 @@
-from dataclasses import dataclass
+from dataclasses import dataclass, field
 from repulsion import Repulsion
 import numpy as np
 
@@ -10,9 +10,13 @@ class Config:
     room_h: float = 15.0
     door_w: float = 2.0
     corridor_len: float = 8.0   # used as simplified staircase bottleneck
+    exits: list = field(default_factory=lambda: [
+        {"x": 10.0, "y": 8.0, "w": 2.0, "side" : "bottom"},
+        {"x":20.0, "y":15.0, "w":2.0, "side" : "right"}
+    ])
 
     # Agents
-    n_agents: int = 220
+    n_agents: int = 150
     radius: float = 0.22
     desired_speed: float = 1.6
     corridor_speed_factor: float = 0.8
@@ -24,7 +28,7 @@ class Config:
 
     # Time integration
     dt: float = 0.05
-    t_max: float = 120.0
+    t_max: float = 240.0
     speed_cap: float = 3.0
 
     # Output
@@ -39,11 +43,6 @@ class Simulation:
         self.cfg = cfg
 
         self.room_top = cfg.corridor_len + cfg.room_h
-        self.door_xmin = 0.5 * (cfg.room_w - cfg.door_w)
-        self.door_xmax = 0.5 * (cfg.room_w + cfg.door_w)
-
-        # Exit point at the bottom of the corridor
-        self.exit_point = np.array([cfg.room_w / 2.0, -0.5])
 
         self.pos = self._initialize_agents()
         self.vel = np.zeros_like(self.pos)
@@ -94,14 +93,48 @@ class Simulation:
 
     def _targets(self) -> np.ndarray:
         """
-        Agents inside the room aim for the door centre.
-        Agents inside the corridor aim for the final exit.
+        Calculates the nearest exit for each active agent (vectorized).
+        Adds a small noise to distances to encourage more natural distribution.
         """
-        targets = np.tile(self.exit_point, (self.cfg.n_agents, 1))
+        targets = np.zeros((self.cfg.n_agents, 2))
+        idx = self._active_indices()
+        if len(idx) == 0:
+            return targets
 
-        in_room = self.pos[:, 1] >= self.cfg.corridor_len
-        door_center = np.array([self.cfg.room_w / 2.0, self.cfg.corridor_len - 0.1])
-        targets[in_room] = door_center
+        pos = self.pos[idx]
+        
+        # 1. Pre-calculate exit centers and offset "pull" points
+        exit_centers = []
+        offset_targets = []
+        for ex in self.cfg.exits:
+            center = np.array([ex['x'], ex['y']])
+            exit_centers.append(center)
+            
+            offset = 1.0  # Point 1 meter past the door to ensure crossing
+            if ex["side"] == "bottom": t = center + [0, -offset]
+            elif ex["side"] == "top": t = center + [0, offset]
+            elif ex["side"] == "left": t = center + [-offset, 0]
+            elif ex["side"] == "right": t = center + [offset, 0]
+            else: t = center
+            offset_targets.append(t)
+        
+        exit_centers = np.array(exit_centers)
+        offset_targets = np.array(offset_targets)
+
+        # 2. Calculate distances from every agent to every exit center
+        # pos: (N_active, 2), exit_centers: (N_exits, 2)
+        # Using broadcasting for shape: (N_active, N_exits, 2)
+        diffs = pos[:, np.newaxis, :] - exit_centers[np.newaxis, :, :]
+        dists = np.linalg.norm(diffs, axis=2)
+
+        # 3. Add small noise (0.5m) to the distance metrics
+        # This prevents everyone on a perfect symmetry line from picking the same exit.
+        rng = np.random.default_rng(self.cfg.seed + int(self.times[-1] * 10))
+        dists += rng.uniform(-0.5, 0.5, size=dists.shape)
+
+        # 4. Assign best target to each agent
+        best_exit_indices = np.argmin(dists, axis=1)
+        targets[idx] = offset_targets[best_exit_indices]
 
         return targets
 
@@ -138,10 +171,7 @@ class Simulation:
 
     def _wall_force(self) -> np.ndarray:
         """
-        Walls:
-        - room left/right/top walls
-        - room bottom wall except the door opening
-        - corridor side walls
+        Generalized wall forces that account for multiple exits on any side.
         """
         forces = np.zeros_like(self.pos)
         idx = self._active_indices()
@@ -155,36 +185,32 @@ class Simulation:
         fx = np.zeros(len(idx))
         fy = np.zeros(len(idx))
 
-        # Outer room boundaries
-        fx += self.cfg.k_wall * np.clip(self.cfg.radius - x, 0.0, None)
-        fx -= self.cfg.k_wall * np.clip(x - (self.cfg.room_w - self.cfg.radius), 0.0, None)
-        fy -= self.cfg.k_wall * np.clip(y - (self.room_top - self.cfg.radius), 0.0, None)
+        # Helper to check if an agent is in any exit gap on a specific side
+        def in_any_gap(side, coord):
+            gap_mask = np.zeros(len(idx), dtype=bool)
+            for ex in self.cfg.exits:
+                if ex["side"] == side:
+                    # coord is x if side top/bottom, y if side left/right
+                    in_range = (coord > ex["x" if side in ["bottom", "top"] else "y"] - ex["w"]/2) & \
+                               (coord < ex["x" if side in ["bottom", "top"] else "y"] + ex["w"]/2)
+                    gap_mask |= in_range
+            return gap_mask
 
-        # Bottom wall of the lecture theatre, except where the door is
-        near_room_bottom = (
-            (y >= self.cfg.corridor_len - self.cfg.radius)
-            & (y <= self.cfg.corridor_len + self.cfg.radius)
-        )
-        outside_door = (x < self.door_xmin) | (x > self.door_xmax)
-        fy += (
-            self.cfg.k_wall
-            * np.clip((self.cfg.corridor_len + self.cfg.radius) - y, 0.0, None)
-            * near_room_bottom
-            * outside_door
-        )
+        # Left wall (x=0)
+        near_left = x < self.cfg.radius
+        fx += self.cfg.k_wall * (self.cfg.radius - x) * near_left * (~in_any_gap("left", y))
 
-        # Corridor side walls
-        in_corridor = y < self.cfg.corridor_len + self.cfg.radius
-        fx += (
-            self.cfg.k_wall
-            * np.clip((self.door_xmin + self.cfg.radius) - x, 0.0, None)
-            * in_corridor
-        )
-        fx -= (
-            self.cfg.k_wall
-            * np.clip(x - (self.door_xmax - self.cfg.radius), 0.0, None)
-            * in_corridor
-        )
+        # Right wall (x=room_w)
+        near_right = x > (self.cfg.room_w - self.cfg.radius)
+        fx -= self.cfg.k_wall * (x - (self.cfg.room_w - self.cfg.radius)) * near_right * (~in_any_gap("right", y))
+
+        # Top wall (y=room_top)
+        near_top = y > (self.room_top - self.cfg.radius)
+        fy -= self.cfg.k_wall * (y - (self.room_top - self.cfg.radius)) * near_top * (~in_any_gap("top", y))
+
+        # Bottom wall (y=corridor_len)
+        near_bottom = (y < self.cfg.corridor_len + self.cfg.radius) & (y > self.cfg.corridor_len - self.cfg.radius)
+        fy += self.cfg.k_wall * ((self.cfg.corridor_len + self.cfg.radius) - y) * near_bottom * (~in_any_gap("bottom", x))
 
         forces[idx, 0] = fx
         forces[idx, 1] = fy
@@ -201,9 +227,19 @@ class Simulation:
         self.vel[idx] *= factors
 
     def _remove_exited_agents(self) -> None:
-        exited = self.active & (self.pos[:, 1] < -self.cfg.radius)
-        self.active[exited] = False
-        self.vel[~self.active] = 0.0
+        """Remove agents who have passed through any of the defined exits."""
+        for ex in self.cfg.exits:
+            if ex["side"] == "bottom":
+                exited = self.active & (self.pos[:, 1] < ex["y"] - self.cfg.radius)
+            elif ex["side"] == "top":
+                exited = self.active & (self.pos[:, 1] > ex["y"] + self.cfg.radius)
+            elif ex["side"] == "left":
+                exited = self.active & (self.pos[:, 0] < ex["x"] - self.cfg.radius)
+            elif ex["side"] == "right":
+                exited = self.active & (self.pos[:, 0] > ex["x"] + self.cfg.radius)
+            
+            self.active[exited] = False
+            self.vel[~self.active] = 0.0
 
     def step(self) -> None:
         total_force = (
