@@ -74,7 +74,7 @@ def animate_simulation(cfg: Config, snapshots: Sequence[np.ndarray], times: np.n
         return scatter, time_text
     
     ani = animation.FuncAnimation(
-        fig, update, frames=len(snapshots), interval=150, blit=True
+        fig, update, frames=len(snapshots), interval=75, blit=True
     )
     plt.show()
 

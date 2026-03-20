@@ -23,8 +23,10 @@ class Config:
     tau: float = 0.5
 
     # Forces
-    k_rep: float = 20.0
-    k_wall: float = 50.0
+    k_simple_rep: float = 20.0
+    k_coulomb_rep: float = 10.0
+    k_yukawa_rep: float = 10.0
+    k_wall: float = 100.0
 
     # Time integration
     dt: float = 0.05
@@ -32,7 +34,7 @@ class Config:
     speed_cap: float = 3.0
 
     # Output
-    snapshot_every: int = 40
+    snapshot_every: int = 10
     seed: int = 42
 
 
@@ -130,7 +132,7 @@ class Simulation:
         # 3. Add small noise (0.5m) to the distance metrics
         # This prevents everyone on a perfect symmetry line from picking the same exit.
         rng = np.random.default_rng(self.cfg.seed + int(self.times[-1] * 10))
-        dists += rng.uniform(-0.5, 0.5, size=dists.shape)
+        dists += rng.uniform(-0.2, 0.2, size=dists.shape)
 
         # 4. Assign best target to each agent
         best_exit_indices = np.argmin(dists, axis=1)
@@ -167,7 +169,7 @@ class Simulation:
         Simple soft repulsion when agents overlap.
         This is intentionally minimal for the first commit.
         """
-        return Repulsion(self.cfg).simple_agent_repulsion(self.pos, self._active_indices())
+        return Repulsion(self.cfg).yukawa_like_agent_repulsion(self.pos, self._active_indices())
 
     def _wall_force(self) -> np.ndarray:
         """

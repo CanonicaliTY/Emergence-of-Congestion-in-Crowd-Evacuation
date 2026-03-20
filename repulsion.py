@@ -21,8 +21,8 @@ class Repulsion:
     ux = dx / dist
     uy = dy / dist
 
-    fx = self.cfg.k_rep * np.sum(overlap * ux, axis=1)
-    fy = self.cfg.k_rep * np.sum(overlap * uy, axis=1)
+    fx = self.cfg.k_simple_rep * np.sum(overlap * ux, axis=1)
+    fy = self.cfg.k_simple_rep * np.sum(overlap * uy, axis=1)
 
     forces[idx, 0] = fx
     forces[idx, 1] = fy
@@ -44,8 +44,8 @@ class Repulsion:
     ux = dx / dist
     uy = dy / dist
 
-    fx = self.cfg.k_rep * np.sum(ux / dist**2, axis=1)
-    fy = self.cfg.k_rep * np.sum(uy / dist**2, axis=1)
+    fx = self.cfg.k_coulomb_rep * np.sum(ux / dist**2, axis=1)
+    fy = self.cfg.k_coulomb_rep * np.sum(uy / dist**2, axis=1)
 
     forces[idx, 0] = fx
     forces[idx, 1] = fy
@@ -67,8 +67,8 @@ class Repulsion:
     ux = dx / dist
     uy = dy / dist
 
-    fx = self.cfg.k_rep * np.sum(np.exp(-dist) * ux, axis=1)
-    fy = self.cfg.k_rep * np.sum(np.exp(-dist) * uy, axis=1)
+    fx = self.cfg.k_yukawa_rep * np.sum(np.exp(-dist) * ux, axis=1)
+    fy = self.cfg.k_yukawa_rep * np.sum(np.exp(-dist) * uy, axis=1)
 
     forces[idx, 0] = fx
     forces[idx, 1] = fy
