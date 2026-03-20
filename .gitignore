@@ -23,3 +23,6 @@ TestResults.xml
 
 #Pycache
 __pycache__/
+
+#MacOS
+.DS_Store
