@@ -74,8 +74,9 @@ def animate_simulation(cfg: Config, snapshots: Sequence[np.ndarray], times: np.n
         return scatter, time_text
     
     ani = animation.FuncAnimation(
-        fig, update, frames=len(snapshots), interval=75, blit=True
+        fig, update, frames=len(snapshots), interval=125, blit=True
     )
+    ani.save("evacuation.gif", writer="pillow", fps=30)
     plt.show()
 
 def plot_simulation_results(

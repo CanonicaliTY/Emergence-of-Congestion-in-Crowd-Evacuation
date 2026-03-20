@@ -7,13 +7,14 @@ import numpy as np
 class Config:
     # Geometry
     room_w: float = 20.0
-    room_h: float = 15.0
+    room_h: float = 20.0
     door_w: float = 2.0
     corridor_len: float = 8.0   # used as simplified staircase bottleneck
     exits: list = field(default_factory=lambda: [
         {"x": 10.0, "y": 8.0, "w": 2.0, "side" : "bottom"},
-        {"x":20.0, "y":15.0, "w":2.0, "side" : "right"}
+        {"x":20.0, "y":21.0, "w":2.0, "side" : "right"}
     ])
+    slope_angle: float = 12.0
 
     # Agents
     n_agents: int = 150
@@ -24,8 +25,8 @@ class Config:
 
     # Forces
     k_simple_rep: float = 20.0
-    k_coulomb_rep: float = 10.0
-    k_yukawa_rep: float = 10.0
+    k_coulomb_rep: float = 2.0
+    k_yukawa_rep: float = 2.0
     k_wall: float = 100.0
 
     # Time integration
@@ -132,7 +133,7 @@ class Simulation:
         # 3. Add small noise (0.5m) to the distance metrics
         # This prevents everyone on a perfect symmetry line from picking the same exit.
         rng = np.random.default_rng(self.cfg.seed + int(self.times[-1] * 10))
-        dists += rng.uniform(-0.2, 0.2, size=dists.shape)
+        dists += rng.normal(0, 0.3, size=dists.shape)
 
         # 4. Assign best target to each agent
         best_exit_indices = np.argmin(dists, axis=1)
@@ -217,6 +218,32 @@ class Simulation:
         forces[idx, 0] = fx
         forces[idx, 1] = fy
         return forces
+    def slope_force(self) -> np.ndarray:
+        """
+        Force that simulates the spatial height difference (gravity-like pull downhill).
+        Assumes the room slopes upwards from y = corridor_len to y = room_top.
+        """
+        forces = np.zeros_like(self.pos)
+        idx = self._active_indices()
+        if len(idx) == 0:
+            return forces
+        
+        pos = self.pos[idx]
+        y = pos[:, 1]
+        
+        # Only agents inside the room (y >= corridor_len) feel the slope
+        # Stage is at y=corridor_len, seats slope up from there.
+        in_room = (y >= self.cfg.corridor_len)
+        
+        # Downhill direction is (0, -1)
+        # Using a simple k_slope factor. Here we use tan(angle) as the magnitude.
+        # F = -k * dy/dz = (0, -k * tan(theta))
+        k_gravity = 5.0 # Reduced from 15.0 to prevent overpowering the goal force
+        fy_slope = -k_gravity * np.tan(np.deg2rad(self.cfg.slope_angle))
+        
+        forces[idx[in_room], 1] = fy_slope
+        return forces
+        
 
     def _limit_speed(self) -> None:
         idx = self._active_indices()
@@ -248,6 +275,7 @@ class Simulation:
             self._goal_force()
             + self._agent_repulsion()
             + self._wall_force()
+            + self.slope_force()
         )
 
         idx = self._active_indices()
