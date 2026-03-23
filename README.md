@@ -1,86 +1,77 @@
 # Crowd Evacuation Simulation – Simon Theatre E
 
-This project models crowd evacuation from a simplified lecture-theatre geometry
-inspired by Simon Theatre E. The core scientific aim is to study how congestion
-emerges near a bottleneck during evacuation using a readable 2D agent-based
-social-force-style model.
+This project studies how congestion emerges near a single bottleneck during
+evacuation using a simple 2D agent-based social-force-style model. The current
+`main` branch keeps a deliberately clean baseline:
 
-## Recommended Main-Branch Scope
-
-The `main` branch now uses this baseline:
-
-- a single-exit bottleneck geometry
-- a 2D model without slope or height-field effects
-- one clear default repulsion model
-- a simple single-room layout
-- static plots as the default output
-
-This keeps the scientific story focused on bottleneck congestion rather than on
-multiple competing mechanisms.
-
-## Is the Corridor Necessary?
-
-Not strictly. A bottleneck transition from relatively free flow to congested
-flow can already be studied in a room with a single narrow exit.
-
-The corridor is not kept in `main`, because:
-
-- the main scientific question is bottleneck congestion, not the specific
-  Simon Theatre E layout
-- a single-room, single-exit setup is easier to explain on a poster
-- removing the corridor gives a cleaner baseline model with fewer geometric
-  details to justify
-
-So the baseline used in `main` is:
-
-- remove the corridor from `main`
-- keep the geometry single-room and single-exit
-- avoid adding slope effects to the baseline model
-
-## Branch Direction
-
-Currently kept in `main`:
-
-- single-exit bottleneck geometry
-- single-room geometry without corridor
+- single room
+- single exit on the bottom wall
 - 2D dynamics only
-- one default repulsion law
-- simple evacuation curve and snapshot plotting
+- one default soft repulsion model
+- no corridor, no slope field, no multiple exits
 
-Better suited to `Tingyu` or to a future optional switch:
+The goal is not to build a large pedestrian framework. The goal is to produce a
+poster-ready analysis pipeline for the onset of congestion in a bottleneck
+evacuation system.
 
-- multiple exits
-- slope or gravity-like spatial field
-- alternative repulsion laws for comparison studies
-- automatic GIF animation export
+## Project Structure
 
-The reason for this split is that `main` should stay as the clean reference
-model for the congestion study, while `Tingyu` can be the branch for extensions
-and sensitivity checks.
+- `main.py`: simple entry point for a single run or a small parameter scan
+- `simulation.py`: simulation engine and run-level observables
+- `repulsion.py`: baseline soft-repulsion force
+- `analysis.py`: repeated runs, parameter scans, and onset-of-congestion estimate
+- `visualization.py`: single-run and scan plotting utilities
+- `requirements.txt`: Python dependencies
+
+## What Is Measured
+
+Each simulation run now records:
+
+- evacuation time `T_evac`
+- people remaining as a function of time
+- cumulative evacuated count
+- per-step outflow and time-binned outflow
+- average evacuation flux `Q = N / T_evac` for completed runs
+- local door density measured in a rectangular observation region above the exit
+- clogging fraction
+
+The local density is measured by counting active agents in a fixed box above the
+door and dividing by its area.
+
+The clogging indicator is intentionally simple:
+
+- the main congestion/clogging state is defined by high local door density
+- a stricter stalled indicator additionally requires low outflow in the same
+  time bin
+
+This is interpreted as a transparent, poster-friendly indicator of temporary
+congestion rather than as a sophisticated traffic-state classifier.
+
+## Transition-Like Analysis
+
+The code includes a modest onset-of-congestion estimate for scans over crowd
+size or global density. It does not claim a rigorous thermodynamic phase
+transition.
+
+Instead, it looks for practical crossover indicators such as:
+
+- the first clearly non-zero clogging fraction
+- the first sharp rise in evacuation time
+- the crowd size or density where the average flux reaches a maximum
+
+These are used as finite-size, transition-like markers for the onset of
+stronger congestion near the bottleneck.
 
 ## Recent Changes
 
-This section records the main changes and the current decision on each one.
+Recent changes on the current branch:
 
-- `multiple exits` had been merged into the code. This has now been removed from
-  the default `main` model so that the baseline remains a single bottleneck.
-- `corridor-based geometry` is no longer part of the `main` baseline. The model
-  now uses a single room with one bottom exit.
-- `slope field` had been merged as a gravity-like extra force. This has been
-  removed from `main` so the baseline stays purely 2D and easier to interpret.
-- `repulsion.py` is kept as a separate module, but `main` now uses one simple
-  soft-repulsion law as the default interaction model.
-- `animation output` is no longer part of the default run path in `main`.
-- `default parameters` have been brought back in line with the simpler baseline
-  model rather than the expanded multi-feature version.
-
-## Current File Structure
-
-- `main.py`: current single entry point
-- `simulation.py`: simulation engine for the single-room baseline
-- `repulsion.py`: baseline repulsion-force implementation
-- `visualization.py`: static plotting utilities
-- `requirements.txt`: Python dependencies
+- the baseline single-room, single-exit model has been preserved
+- run-level observables were added to support physics analysis
+- local bottleneck density and a simple clogging indicator were added
+- `analysis.py` was added for repeated runs and parameter scans
+- plotting was extended to include both single-run and scan-based figures
+- `main.py` now supports a single run plus simple scan modes while staying small
 
 ## Installation
 
@@ -92,8 +83,29 @@ pip install -r requirements.txt
 
 ## Run
 
+Single simulation:
+
 ```bash
 python main.py
 ```
 
-The current `main` code runs the baseline simulation and shows the static plots.
+Crowd-size / density scan:
+
+```bash
+python main.py --mode density-scan --repeats 4
+```
+
+Door-width scan:
+
+```bash
+python main.py --mode door-scan --repeats 4
+```
+
+Desired-speed scan:
+
+```bash
+python main.py --mode speed-scan --repeats 4
+```
+
+The default scan values are defined near the top of `main.py` and can be edited
+directly for poster figures.
