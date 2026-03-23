@@ -4,6 +4,7 @@ import numpy as np
 
 from repulsion import Repulsion
 
+from scipy.spatial import cKDTree
 
 @dataclass(frozen=True)
 class ObservationRegion:
@@ -27,9 +28,9 @@ class Config:
     door_w: float = 2.0
 
     # Agents
-    n_agents: int = 220
+    n_agents: int = 250 
     radius: float = 0.22
-    desired_speed: float = 1.6
+    desired_speed: float = 1.2
     tau: float = 0.5
 
     # Forces
@@ -37,9 +38,9 @@ class Config:
     k_wall: float = 50.0
 
     # Time integration
-    dt: float = 0.05
-    t_max: float = 120.0
-    speed_cap: float = 3.0
+    dt: float = 0.005
+    t_max: float = 250.0
+    speed_cap: float = 2.0
 
     # Analysis
     door_region_width_margin: float = 0.75
@@ -80,6 +81,7 @@ class RunResults:
     completed: bool
     initial_agent_count: int
     global_density: float
+    peak_congestion: tuple
 
 
 class Simulation:
@@ -329,6 +331,7 @@ class Simulation:
             completed=completed,
             initial_agent_count=self.cfg.n_agents,
             global_density=self.cfg.n_agents / (self.cfg.room_w * self.cfg.room_h),
+            peak_congestion=self.congestion
         )
 
     def step(self) -> int:
@@ -346,15 +349,69 @@ class Simulation:
         self._limit_speed()
         self.pos[idx] += self.vel[idx] * self.cfg.dt
         return self._remove_exited_agents()
+    
+    def congestion_level(self) -> float:
+        idx = self._active_indices()    
+        ROI = [i for i in idx if  self.door_region.xmin <= self.pos[i][0] <= self.door_region.xmax  and  self.door_region.ymin <= self.pos[i][1] <= self.door_region.ymax]
+        positions = self.pos[ROI]
+        N, d = positions.shape
+        if N < 4:
+            return tuple((N,0))
+        velocities = self.vel[ROI]
+        speeds = np.sqrt(velocities[:, 0] ** 2 + velocities[:, 1] ** 2)
+        denom = max(float(np.mean(speeds)), 1e-8)
+        tree = cKDTree(positions)
+        distances, idxs = tree.query(positions, k=N)
+        if distances.shape[1] > 1:
+            nn = distances[:, 1]
+        else:
+            # compute nearest nonzero distance
+            all_dists = np.sqrt(((positions[:, None, :] - positions[None, :, :])**2).sum(-1))
+            all_dists[all_dists == 0] = np.inf
+            nn = np.min(all_dists, axis=1)
+        h = max(np.median(nn), 1e-8)
+        curls = np.full((N,), np.nan, dtype=float)
+        for i in range(N):
+            neigh_idx = idxs[i]
+            neigh_idx = np.unique(neigh_idx)  # keep unique neighbors (includes self)
+            X = positions[neigh_idx] - positions[i]      # (m,2)
+            V = velocities[neigh_idx] - velocities[i]   # (m,2)
+
+            r2 = np.sum(X * X, axis=1)
+            w = np.exp(-0.5 * r2 / (h * h))
+
+            if X.shape[0] < 4 or np.sum(w) <= 1e-12:
+                continue
+
+            sw = np.sqrt(w)[:, None]
+            A = sw * X  # (m,2)
+            J = np.zeros((2, 2), dtype=float)
+            # solve for each velocity component: A @ p = b
+            for comp in range(2):
+                b = sw[:, 0] * V[:, comp]
+                p, *_ = np.linalg.lstsq(A, b, rcond=None)
+                J[comp, :] = p
+
+            # scalar curl z = d v_y / dx - d v_x / dy = J[1,0] - J[0,1]
+            curls[i] = J[1, 0] - J[0, 1]
+        return tuple((N, ((np.max(curls)-np.min(curls))/denom)))
+
 
     def run(self) -> RunResults:
         n_steps = int(self.cfg.t_max / self.cfg.dt)
+        ct = 0
+        self.congestion = tuple((0,0))
 
         for step in range(1, n_steps + 1):
             if not np.any(self.active):
                 break
 
             exited_count = self.step()
+
+            cg = self.congestion_level()
+            if(np.abs(cg[1]) > np.abs(ct)):
+                ct = cg[1]
+                self.congestion = cg 
 
             current_time = step * self.cfg.dt
             n_remaining = int(np.sum(self.active))

@@ -1,5 +1,7 @@
 import argparse
 
+import matplotlib.pyplot as plt
+
 from analysis import (
     ParameterScanResult,
     TransitionEstimate,
@@ -24,7 +26,7 @@ def build_parser() -> argparse.ArgumentParser:
     parser = argparse.ArgumentParser(description="Crowd evacuation analysis")
     parser.add_argument(
         "--mode",
-        choices=("single", "density-scan", "door-scan", "speed-scan"),
+        choices=("single", "density-scan", "door-scan", "speed-scan", "congestion-scan"),
         default="single",
         help="Select a single run or one of the parameter scans.",
     )
@@ -81,6 +83,17 @@ def run_single_mode(cfg: Config) -> None:
     plot_single_run_results(results)
     print_single_run_summary(results)
 
+def run_congestion_scan_mode(cfg: Config, repeats: int) -> None:
+    ns = []
+    cgs = []
+    for N in range(0, 50, 1):
+        cfg.n_agents = N
+        results = Simulation(cfg).run()
+        ns.append(N)
+        cgs.append(results.peak_congestion[1])
+        print(f"N={results.peak_congestion[0]}, congestion={results.peak_congestion[1]}")
+    plt.plot(ns, cgs)
+    plt.show()
 
 def run_density_scan_mode(cfg: Config, repeats: int) -> None:
     scan = scan_agent_counts(cfg, DEFAULT_AGENT_COUNTS, repeats=repeats)
@@ -111,6 +124,8 @@ def main() -> None:
         run_density_scan_mode(cfg, repeats=args.repeats)
     elif args.mode == "door-scan":
         run_door_scan_mode(cfg, repeats=args.repeats)
+    elif args.mode == "congestion-scan":
+        run_congestion_scan_mode(cfg, repeats=args.repeats)
     else:
         run_speed_scan_mode(cfg, repeats=args.repeats)
 
