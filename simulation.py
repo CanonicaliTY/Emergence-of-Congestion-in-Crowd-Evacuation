@@ -25,7 +25,7 @@ class Config:
     # Geometry
     room_w: float = 20.0
     room_h: float = 15.0
-    door_w: float = 2.0
+    door_w: float = 2
 
     # Agents
     n_agents: int = 250 
@@ -351,6 +351,7 @@ class Simulation:
         return self._remove_exited_agents()
     
     def congestion_level(self) -> float:
+        # Find the subset of active indices which are located in the door region
         idx = self._active_indices()    
         ROI = [i for i in idx if  self.door_region.xmin <= self.pos[i][0] <= self.door_region.xmax  and  self.door_region.ymin <= self.pos[i][1] <= self.door_region.ymax]
         positions = self.pos[ROI]
@@ -358,43 +359,44 @@ class Simulation:
         if N < 4:
             return tuple((N,0))
         velocities = self.vel[ROI]
+        # Parameter is normalised by the mean speed 
         speeds = np.sqrt(velocities[:, 0] ** 2 + velocities[:, 1] ** 2)
         denom = max(float(np.mean(speeds)), 1e-8)
+        # Use scipy nearest neighbour algorithm to discover nearby agents
         tree = cKDTree(positions)
         distances, idxs = tree.query(positions, k=N)
+        # Find the median separation of nearest neighbours; assign this to smoothing parameter h
         if distances.shape[1] > 1:
             nn = distances[:, 1]
         else:
-            # compute nearest nonzero distance
             all_dists = np.sqrt(((positions[:, None, :] - positions[None, :, :])**2).sum(-1))
             all_dists[all_dists == 0] = np.inf
             nn = np.min(all_dists, axis=1)
         h = max(np.median(nn), 1e-8)
+        # Initialise curl array; NaN is the default value (will persist for agents with too few neighbours)
         curls = np.full((N,), np.nan, dtype=float)
         for i in range(N):
             neigh_idx = idxs[i]
             neigh_idx = np.unique(neigh_idx)  # keep unique neighbors (includes self)
             X = positions[neigh_idx] - positions[i]      # (m,2)
             V = velocities[neigh_idx] - velocities[i]   # (m,2)
-
+            # Check (via Gaussian term w) - are there more than 4 nearby agents?
             r2 = np.sum(X * X, axis=1)
             w = np.exp(-0.5 * r2 / (h * h))
-
             if X.shape[0] < 4 or np.sum(w) <= 1e-12:
                 continue
-
             sw = np.sqrt(w)[:, None]
-            A = sw * X  # (m,2)
-            J = np.zeros((2, 2), dtype=float)
-            # solve for each velocity component: A @ p = b
+            A = sw * X  # A is the weighted position of the nearest-neighbour agents
+            J = np.zeros((2, 2), dtype=float) # J is the best-estimate Jacobean matrix of the local velocity field
+            # Determining the Jacobean matrix row-wise
             for comp in range(2):
-                b = sw[:, 0] * V[:, comp]
-                p, *_ = np.linalg.lstsq(A, b, rcond=None)
+                b = sw[:, 0] * V[:, comp] # b is the weighted velocity of the nearest-neighbour agents
+                p, *_ = np.linalg.lstsq(A, b, rcond=None) # p is the gradients of the velocities
                 J[comp, :] = p
-
-            # scalar curl z = d v_y / dx - d v_x / dy = J[1,0] - J[0,1]
+            # The z component of curl is d/dx vy - d/dy vx
+            # Extract this from the Jacobean matrix as J[1,0] - J[0,1]
             curls[i] = J[1, 0] - J[0, 1]
-        return tuple((N, ((np.max(curls)-np.min(curls))/denom)))
+        return tuple((N, ((np.max(curls)-np.min(curls))/denom))) #  max curl - min curl in region of interest scaled by the mean velocity
 
 
     def run(self) -> RunResults:

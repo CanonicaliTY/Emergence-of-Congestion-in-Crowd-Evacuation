@@ -86,7 +86,7 @@ def run_single_mode(cfg: Config) -> None:
 def run_congestion_scan_mode(cfg: Config, repeats: int) -> None:
     ns = []
     cgs = []
-    for N in range(0, 50, 1):
+    for N in range(0, 250, 10):
         cfg.n_agents = N
         results = Simulation(cfg).run()
         ns.append(N)
