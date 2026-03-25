@@ -44,6 +44,19 @@ def draw_geometry(ax: plt.Axes, cfg: Config) -> None:
         curr_x = ex["x"] + ex["w"]/2
     ax.plot([curr_x, cfg.room_w], [room_bottom, room_bottom], color="black", linewidth=2)
 
+    # 5. Seat Rows
+    for row in cfg.seat_rows:
+        row_y = row["y"]
+        # Draw seat segments between aisles
+        curr_x = 0
+        sorted_aisles = sorted(cfg.aisles, key=lambda a: a["x"])
+        for aisle in sorted_aisles:
+            # Draw segment up to the aisle
+            ax.plot([curr_x, aisle["x"] - aisle["w"]/2], [row_y, row_y], color="gray", linewidth=1, alpha=0.6)
+            curr_x = aisle["x"] + aisle["w"]/2
+        # Final segment from last aisle to right wall
+        ax.plot([curr_x, cfg.room_w], [row_y, row_y], color="gray", linewidth=1, alpha=0.6)
+
     ax.set_aspect("equal")
     ax.set_xlim(-1, cfg.room_w + 1)
     ax.set_ylim(-1, room_top + 1)
@@ -76,7 +89,7 @@ def animate_simulation(cfg: Config, snapshots: Sequence[np.ndarray], times: np.n
     ani = animation.FuncAnimation(
         fig, update, frames=len(snapshots), interval=125, blit=True
     )
-    ani.save("evacuation.gif", writer="pillow", fps=30)
+    #ani.save("evacuation.gif", writer="pillow", fps=30)
     plt.show()
 
 def plot_simulation_results(
