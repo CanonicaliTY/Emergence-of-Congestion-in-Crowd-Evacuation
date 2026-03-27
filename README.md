@@ -1,4 +1,5 @@
 # Crowd Evacuation Simulation – Simon Theatre E
+<img src="evacuation.gif" width="500"/>
 
 This project studies how congestion emerges near a single bottleneck during
 evacuation using a simple 2D agent-based social-force-style model. The current
